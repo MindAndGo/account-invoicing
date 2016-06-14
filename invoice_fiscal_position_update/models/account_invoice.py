@@ -33,7 +33,7 @@ class AccountInvoice(models.Model):
                         product.categ_id.property_account_expense_categ_id)
                     taxes = product.supplier_taxes_id
                                 
-                all_taxes = taxes or account.tax_ids            
+                all_taxes = taxes or account.tax_ids
                 if fp:
                     _logger.debug("Apply the fiscal position %s" % fp.name)
                     account = fp.map_account(account)
