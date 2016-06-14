@@ -46,7 +46,7 @@ class AccountInvoice(models.Model):
 
         if lines_without_product:
             res['warning'] = {'title': _('Warning')}
-            if len(lines_without_product) == len(self.invoice_line):
+            if len(lines_without_product) == len(self.invoice_line_ids):
                 res['warning']['message'] = _(
                     "The invoice lines were not updated to the new "
                     "Fiscal Position because they don't have products.\n"
