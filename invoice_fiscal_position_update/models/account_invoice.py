@@ -33,12 +33,14 @@ class AccountInvoice(models.Model):
                         product.categ_id.property_account_expense_categ_id)
                     taxes = product.supplier_taxes_id
                                 
-                taxes = taxes or account.tax_ids            
+                all_taxes = taxes or account.tax_ids            
                 if fp:
                     _logger.debug("Apply the fiscal position %s" % fp.name)
                     account = fp.map_account(account)
-                    taxes = fp.map_tax(taxes)
-
+                    all_taxes = fp.map_tax(all_taxes)
+                
+                taxes = all_taxes.filtered(lambda r: r.company_id == self.env.user.company_id)
+                
                 line.invoice_line_tax_ids = [(6, 0, taxes.ids)]
                 line.account_id = account.id
             else:
