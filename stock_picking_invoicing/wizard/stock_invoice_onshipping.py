@@ -175,9 +175,10 @@ class StockInvoiceOnshipping(models.TransientModel):
                                 string='Invoicing Company',
                                 default=lambda self:self.env.user.company_id.id)
     
-#    invoiced_partner_field = fields.Many2one(comodel_name="res.company", 
-#                                string='Partner Invoiced',
-#                                default=lambda self:self.env.user.company_id.id)
+    invoiced_partner_field = fields.Selection(selection=[('partner_id',_('Partner')),
+                                                        ('company_id', _('Company'))], 
+                                string='Choose Partner to Invoice field',
+                                default='partner_id')
         
     #=================
     # Business part
@@ -233,7 +234,8 @@ class StockInvoiceOnshipping(models.TransientModel):
                 date_inv = self.invoice_date,
                 inv_type = inv_type,
                 force_company=force_company_id,
-                force_pricelist = self.pricelist_id.id or False
+                force_pricelist = self.pricelist_id.id or False,
+                invoiced_partner_field=self.invoiced_partner_field
                )
 
         res = picking_pool.action_invoice_create(active_ids,

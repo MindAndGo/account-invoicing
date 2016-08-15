@@ -80,6 +80,12 @@ class StockMove(models.Model):
         ''' returns a tuple (browse_record(res.partner), ID(res.users), ID(res.currency)'''
         currency = company.currency_id.id
         partner = move.picking_id and move.picking_id.partner_id
+        
+        context = self.env.context
+        if 'invoiced_partner_field' in context and context.get('invoiced_partner_field') == 'company_id':            
+            partner = move.picking_id.sudo().company_id.partner_id 
+            _logger.debug("Force the partner to company %s" % (partner))
+        
         if partner:
             code = self.get_code_from_locs(move)
             if partner.property_product_pricelist and code == 'outgoing':
@@ -93,6 +99,7 @@ class StockMove(models.Model):
         partner_invoice_id = move.picking_id.partner_id.address_get(
                                                                     ['invoice'])['invoice']
         partner = self.env['res.partner'].browse(partner_invoice_id)
+        
         new_data = partner, data[1], data[2]
         return new_data
         
@@ -283,10 +290,15 @@ class StockPicking(models.Model):
     @api.model
     def _get_partner_to_invoice(self):
         partner_obj = self.env['res.partner']
-  
-        partner = self.partner_id 
-
-        return partner.address_get(['invoice'])['invoice']
+        partner = self.partner_id
+        
+        context = self.env.context or {} 
+        if 'invoiced_partner_field' in context and context.get('invoiced_partner_field') == 'company_id':      
+            partner = self.sudo().company_id.partner_id 
+        
+        adress = partner.address_get(['invoice'])['invoice']
+        _logger.debug("ADRESSE %s" % adress)
+        return adress
 
     @api.multi
     def _get_invoice_vals(self, key, inv_type, journal_id, move):
@@ -410,7 +422,7 @@ class StockPicking(models.Model):
         picking_obj = self.env['stock.picking'].with_context(force_pricelist=pricelist_id.id)
         pickings = self.search([('id', 'in', ids)])
         for picking in pickings:
-            partner = self._get_partner_to_invoice()
+            partner = picking._get_partner_to_invoice()
             #grouping is based on the invoiced partner
             if group:
                 key = partner

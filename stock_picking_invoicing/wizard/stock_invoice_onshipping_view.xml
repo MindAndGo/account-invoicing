@@ -18,7 +18,7 @@
                         <field name="invoice_force" />
                         <label for="force_journal"/>
                         <div>
-                        <field name="force_journal" class="oe_inline"/>
+                        <field name="force_journal" class="oe_inline"/> : 
                         <field name="journal_id" domain="[('type','=',journal_type)]"  
                                attrs="{'invisible': [('force_journal', '!=', True),]}"
                                class="oe_inline"
@@ -27,11 +27,13 @@
                         <label for="force_pricelist"/>
                         <div>
                         <field name="force_pricelist" class="oe_inline"/>
-                        <field name="pricelist_id" 
+                         : <field name="pricelist_id" 
                                attrs="{'invisible': [('force_pricelist', '!=', True),], 'required':[('force_pricelist', '=', True),]}"
                                class="oe_inline"
                         />
                         </div>
+                        <field name="invoiced_partner_field" />
+                        
                         <field name="show_sale_journal" invisible="1"/>
                         <field name="show_sale_refund_journal" invisible="1"/>
                         <field name="show_purchase_journal" invisible="1"/>
@@ -42,6 +44,7 @@
                         <field name="purchase_refund_journal" domain="['|', ('force_journal', '=', True), ('type', '=', 'purchase_refund')]" attrs="{'invisible':[('show_purchase_refund_journal', '=', False)], 'required':[('show_purchase_refund_journal', '=', True)]}"/>-->
                         
                         <field name="sale_journal" />
+                        
                         <field name="sale_refund_journal" />
                         <field name="purchase_journal" />
                         <field name="purchase_refund_journal" />
