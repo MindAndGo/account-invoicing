@@ -187,11 +187,14 @@ class StockMove(models.Model):
             # If partner given, search price in its sale pricelist
             
             if partner and partner.property_product_pricelist:
+                pricelist_id = partner.property_product_pricelist.id
+                if 'force_pricelist' in self.env.context and self.env.context.get('force_pricelist') != False:
+                    pricelist_id =self.env.context.get('force_pricelist', False)
                 product_id = self.product_id.with_context(
                                          partner=self.partner_id.id,
                                          quantity=self.product_uom_qty,
                                          date=self.date,
-                                         pricelist=partner.property_product_pricelist.id,
+                                         pricelist= pricelist_id,
                                          uom=self.product_uom.id
                                         )                
                 result = product_id.price                
@@ -310,7 +313,7 @@ class StockPicking(models.Model):
 
     
     @api.model
-    def _invoice_create_line(self, moves, journal_id, inv_type='out_invoice'):
+    def _invoice_create_line(self, moves, journal_id, inv_type='out_invoice', pricelist_id=None):
         """
         Create an invoice and associated lines
         """
@@ -394,7 +397,7 @@ class StockPicking(models.Model):
 
     
     @api.model
-    def action_invoice_create(self, ids, journal_id, group=False, type='out_invoice', context=None):
+    def action_invoice_create(self, ids, journal_id, group=False, type='out_invoice', pricelist_id = None):
         """ Creates invoice based on the invoice state selected for picking.
         @param journal_id: Id of journal
         @param group: Whether to create a group invoice or not
@@ -404,6 +407,7 @@ class StockPicking(models.Model):
         
         todo = {}
         
+        picking_obj = self.env['stock.picking'].with_context(force_pricelist=pricelist_id.id)
         pickings = self.search([('id', 'in', ids)])
         for picking in pickings:
             partner = self._get_partner_to_invoice()
@@ -420,7 +424,7 @@ class StockPicking(models.Model):
                         todo[key].append(move)
         invoices = []
         for moves in todo.values():
-            invoices += self._invoice_create_line(moves, journal_id, type)
+            invoices += picking_obj._invoice_create_line(moves, journal_id, type, pricelist_id)
         
         
         

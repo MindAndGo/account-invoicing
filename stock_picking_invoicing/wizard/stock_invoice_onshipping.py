@@ -7,22 +7,31 @@ from openerp import models, fields, api, _
 from openerp.exceptions import Warning as UserError
 from openerp.tools import config
 
-
+#
+#JOURNAL_TYPE_MAP = {
+#    ('outgoing', 'customer'): ['sale'],
+#    ('outgoing', 'supplier'): ['purchase_refund'],
+#    ('outgoing', 'transit'): ['sale', 'purchase_refund'],
+#    ('incoming', 'supplier'): ['purchase'],
+#    ('incoming', 'customer'): ['sale_refund'],
+#    ('incoming', 'transit'): ['purchase', 'sale_refund'],
+#}
+# The refund journal don't exists anymore in v9
 JOURNAL_TYPE_MAP = {
     ('outgoing', 'customer'): ['sale'],
-    ('outgoing', 'supplier'): ['purchase_refund'],
-    ('outgoing', 'transit'): ['sale', 'purchase_refund'],
+    ('outgoing', 'supplier'): ['purchase'],
+    ('outgoing', 'transit'): ['sale', 'purchase'],
     ('incoming', 'supplier'): ['purchase'],
-    ('incoming', 'customer'): ['sale_refund'],
-    ('incoming', 'transit'): ['purchase', 'sale_refund'],
+    ('incoming', 'customer'): ['sale'],
+    ('incoming', 'transit'): ['purchase', 'sale'],
 }
 
 
 JOURNAL_TYPE = [
-        ('purchase_refund', 'Refund Purchase'), 
-        ('purchase', 'Create Supplier Invoice'),
-        ('sale_refund', 'Refund Sale'), 
-        ('sale', 'Create Customer Invoice')
+        ('purchase_refund', _('Refund Purchase')), 
+        ('purchase', _('Create Supplier Invoice')),
+        ('sale_refund', _('Refund Sale')), 
+        ('sale', _('Create Customer Invoice'))
 ]
 
 _logger = logging.getLogger(__name__)
@@ -133,6 +142,9 @@ class StockInvoiceOnshipping(models.TransientModel):
                                     default = _get_journal_type, readonly=True)
     
     group = fields.Boolean("Group by partner")
+    force_journal = fields.Boolean("Force the journal")
+    force_pricelist = fields.Boolean("Force the pricelist")
+    pricelist_id = fields.Many2one(comodel_name="product.pricelist", string="Pricelist")
     invoice_date = fields.Date('Invoice Date')
     invoice_force = fields.Boolean('Force Invoicing', default=False)
     
@@ -160,8 +172,12 @@ class StockInvoiceOnshipping(models.TransientModel):
         string="Show Refund Purchase Journal")
     
     company_id = fields.Many2one(comodel_name="res.company", 
-                                string='Company to invoice',
+                                string='Invoicing Company',
                                 default=lambda self:self.env.user.company_id.id)
+    
+#    invoiced_partner_field = fields.Many2one(comodel_name="res.company", 
+#                                string='Partner Invoiced',
+#                                default=lambda self:self.env.user.company_id.id)
         
     #=================
     # Business part
@@ -216,13 +232,15 @@ class StockInvoiceOnshipping(models.TransientModel):
         picking_pool = picking_pool.with_context(
                 date_inv = self.invoice_date,
                 inv_type = inv_type,
-                force_company=force_company_id
+                force_company=force_company_id,
+                force_pricelist = self.pricelist_id.id or False
                )
 
         res = picking_pool.action_invoice_create(active_ids,
               journal_id = self.journal_id.id,
               group = self.group,
-              type = inv_type)
+              type = inv_type,
+              pricelist_id = self.pricelist_id)
         return res
 
 #TODO : Check the process        
