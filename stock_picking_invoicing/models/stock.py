@@ -167,6 +167,11 @@ class StockMove(models.Model):
         }
 
         # negative value on quantity
+#        _logger.debug("INVOICE TYPE %s and USAGE : %s" % (inv_type, self.location_id.usage))
+#        _logger.debug("CONTEXTE : %s" % self.env.context)
+        if self.env.context.get('force_journal', False):
+#            _logger.debug("Journal forced")
+            return res
         if ((inv_type == 'out_invoice' and
             self.location_id.usage == 'customer') or
             (inv_type == 'out_refund' and

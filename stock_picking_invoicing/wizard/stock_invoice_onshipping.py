@@ -57,15 +57,15 @@ class StockInvoiceOnshipping(models.TransientModel):
         for pick in pick_obj.search([('id', 'in', active_ids)]):
             if pick.invoice_state != '2binvoiced':
                 count += 1
-            if not pick.partner_id :
-                raise UserError(_('All your pickings must have a partner to be invoiced!'))
+#            if not pick.partner_id :
+#                raise UserError(_('All your pickings must have a partner to be invoiced!'))
 #        if len(active_ids) == count:
 #            _logger.debug("Raise ")
 #            self.invoice_force = True
 #            raise UserError(_('None of these picking require invoicing.'))
             
         
-        _logger.debug("RESULT %s")
+        _logger.debug("RESULT %s" % res)
         
         return res
     
@@ -235,7 +235,8 @@ class StockInvoiceOnshipping(models.TransientModel):
                 inv_type = inv_type,
                 force_company=force_company_id,
                 force_pricelist = self.pricelist_id.id or False,
-                invoiced_partner_field=self.invoiced_partner_field
+                invoiced_partner_field=self.invoiced_partner_field,
+                force_journal=self.force_journal
                )
 
         res = picking_pool.action_invoice_create(active_ids,
@@ -292,7 +293,7 @@ class StockInvoiceOnshipping(models.TransientModel):
         else:
             moves = pickings.sudo().mapped('move_lines').filtered(
                 lambda x: x.sudo().location_id.usage == usage)
-        return (sum([(m._get_price_unit_invoice( inv_type) *
+        return (sum([(m._get_price_unit_invoice( inv_type, partner) *
                       m.product_uom_qty) for m in moves]),
                 moves.mapped('picking_id'))
 
