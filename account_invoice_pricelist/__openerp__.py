@@ -30,6 +30,7 @@
     'license': 'AGPL-3',
     'depends': [
         'account',
+        'patch_pos_multi_taxes'
     ],
     'data': [
         'view/view.xml',
