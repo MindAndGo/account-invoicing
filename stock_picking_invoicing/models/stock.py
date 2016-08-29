@@ -80,6 +80,12 @@ class StockMove(models.Model):
         ''' returns a tuple (browse_record(res.partner), ID(res.users), ID(res.currency)'''
         currency = company.currency_id.id
         partner = move.picking_id and move.picking_id.partner_id
+        
+        context = self.env.context
+        if 'invoiced_partner_field' in context and context.get('invoiced_partner_field') == 'company_id':            
+            partner = move.picking_id.sudo().company_id.partner_id 
+            _logger.debug("Force the partner to company %s" % (partner))
+        
         if partner:
             code = self.get_code_from_locs(move)
             if partner.property_product_pricelist and code == 'outgoing':
@@ -93,6 +99,7 @@ class StockMove(models.Model):
         partner_invoice_id = move.picking_id.partner_id.address_get(
                                                                     ['invoice'])['invoice']
         partner = self.env['res.partner'].browse(partner_invoice_id)
+        
         new_data = partner, data[1], data[2]
         return new_data
         
@@ -100,7 +107,7 @@ class StockMove(models.Model):
     def _get_taxes(self, fiscal_position):
         self.ensure_one()
         taxes_ids = self.product_id.taxes_id        
-        my_taxes = taxes_ids.filtered(lambda r: r.company_id.id == self.company_id.id)    
+        my_taxes = taxes_ids.filtered(lambda r: r.company_id.id == self.env.context['force_company'])    
         my_taxes = fiscal_position.map_tax(my_taxes)
         my_taxes = [t.id for t in my_taxes]
         
@@ -160,6 +167,11 @@ class StockMove(models.Model):
         }
 
         # negative value on quantity
+#        _logger.debug("INVOICE TYPE %s and USAGE : %s" % (inv_type, self.location_id.usage))
+#        _logger.debug("CONTEXTE : %s" % self.env.context)
+        if self.env.context.get('force_journal', False):
+#            _logger.debug("Journal forced")
+            return res
         if ((inv_type == 'out_invoice' and
             self.location_id.usage == 'customer') or
             (inv_type == 'out_refund' and
@@ -187,11 +199,14 @@ class StockMove(models.Model):
             # If partner given, search price in its sale pricelist
             
             if partner and partner.property_product_pricelist:
+                pricelist_id = partner.property_product_pricelist.id
+                if 'force_pricelist' in self.env.context and self.env.context.get('force_pricelist') != False:
+                    pricelist_id =self.env.context.get('force_pricelist', False)
                 product_id = self.product_id.with_context(
                                          partner=self.partner_id.id,
                                          quantity=self.product_uom_qty,
                                          date=self.date,
-                                         pricelist=partner.property_product_pricelist.id,
+                                         pricelist= pricelist_id,
                                          uom=self.product_uom.id
                                         )                
                 result = product_id.price                
@@ -274,15 +289,21 @@ class StockPicking(models.Model):
         ''' This function simply creates the invoice from the given values. It is overriden in delivery module to add the delivery costs.
         '''
         invoice_obj = self.env['account.invoice']
+        _logger.debug("Create invoice with %s" % vals)
         return invoice_obj.create(vals)
     
     @api.model
     def _get_partner_to_invoice(self):
         partner_obj = self.env['res.partner']
-  
-        partner = self.partner_id 
-
-        return partner.address_get(['invoice'])['invoice']
+        partner = self.partner_id
+        
+        context = self.env.context or {} 
+        if 'invoiced_partner_field' in context and context.get('invoiced_partner_field') == 'company_id':      
+            partner = self.sudo().company_id.partner_id 
+        
+        adress = partner.address_get(['invoice'])['invoice']
+        _logger.debug("ADRESSE %s" % adress)
+        return adress
 
     @api.multi
     def _get_invoice_vals(self, key, inv_type, journal_id, move):
@@ -309,7 +330,7 @@ class StockPicking(models.Model):
 
     
     @api.model
-    def _invoice_create_line(self, moves, journal_id, inv_type='out_invoice'):
+    def _invoice_create_line(self, moves, journal_id, inv_type='out_invoice', pricelist_id=None):
         """
         Create an invoice and associated lines
         """
@@ -319,21 +340,24 @@ class StockPicking(models.Model):
         
         is_extra_move, extra_move_tax = move_obj._get_moves_taxes(moves, inv_type)
         product_price_unit = {}
-        
+        _logger.debug("COntexte %s" % self.env.context)
         invoice_id = None
+        company_id  =  self.env.context['force_company'] or self.env['res.users']._get_company() 
         for move in moves:
-            company = move.company_id
-            origin = move.picking_id.name
+            company = self.env['res.company'].search([('id', '=', company_id)])
+            origin = move.sudo().picking_id.name
             partner, user_id, currency_id = move_obj._get_master_data(move, company)
             key = (partner, currency_id, company.id, user_id)
-            
+            _logger.debug("contexte %s" % self.env.context)
             invoice_vals = self._get_invoice_vals(key, inv_type, journal_id, move)
             if key not in invoices:
                 # Get account and payment terms
+                _logger.debug("Add invoice to list")
                 invoice_id = self._create_invoice_from_picking(move.picking_id, invoice_vals)
                 invoices[key] = invoice_id.id
-                
+                _logger.debug("Add invoice to list after key")
             else:
+                _logger.debug("Add found invoice to list")
                 invoice = invoice_obj.search([('id', '=', invoices[key])])
                 merge_vals = {}
                 if not invoice.origin or invoice_vals['origin'] not in invoice.origin.split(', '):
@@ -344,10 +368,11 @@ class StockPicking(models.Model):
                     invoice_name = filter(None, [invoice.name, invoice_vals['name']])
                     merge_vals['name'] = ', '.join(invoice_name)
                 if merge_vals:
+                    _logger.debug("Merge vues %s" % merge_vals)
                     invoice.write(merge_vals)
 
             move.with_context(
-                              fp_id=invoice_vals.get('fiscal_position_id', False)
+                              fp_id=invoice_vals.get('fiscal_position_id', False),
                               )
             
             invoice_line_vals = move._get_invoice_line_vals(partner, inv_type)
@@ -368,6 +393,7 @@ class StockPicking(models.Model):
                     invoice_line_vals['invoice_line_tax_id'] = extra_move_tax[0, move.product_id]
 
             invoice_line = move._create_invoice_line_from_vals(invoice_line_vals)
+            _logger.debug("Before invoicing write")
             if invoice_line :
                 move.write({'invoice_line_id': invoice_line.id,
                             'invoice_state': 'invoiced'
@@ -388,7 +414,7 @@ class StockPicking(models.Model):
 
     
     @api.model
-    def action_invoice_create(self, ids, journal_id, group=False, type='out_invoice', context=None):
+    def action_invoice_create(self, ids, journal_id, group=False, type='out_invoice', pricelist_id = None):
         """ Creates invoice based on the invoice state selected for picking.
         @param journal_id: Id of journal
         @param group: Whether to create a group invoice or not
@@ -398,9 +424,10 @@ class StockPicking(models.Model):
         
         todo = {}
         
+        picking_obj = self.env['stock.picking'].with_context(force_pricelist=pricelist_id.id)
         pickings = self.search([('id', 'in', ids)])
         for picking in pickings:
-            partner = self._get_partner_to_invoice()
+            partner = picking._get_partner_to_invoice()
             #grouping is based on the invoiced partner
             if group:
                 key = partner
@@ -414,7 +441,7 @@ class StockPicking(models.Model):
                         todo[key].append(move)
         invoices = []
         for moves in todo.values():
-            invoices += self._invoice_create_line(moves, journal_id, type)
+            invoices += picking_obj._invoice_create_line(moves, journal_id, type, pricelist_id)
         
         
         

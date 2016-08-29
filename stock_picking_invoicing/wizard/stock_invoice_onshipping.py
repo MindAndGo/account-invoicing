@@ -7,22 +7,31 @@ from openerp import models, fields, api, _
 from openerp.exceptions import Warning as UserError
 from openerp.tools import config
 
-
+#
+#JOURNAL_TYPE_MAP = {
+#    ('outgoing', 'customer'): ['sale'],
+#    ('outgoing', 'supplier'): ['purchase_refund'],
+#    ('outgoing', 'transit'): ['sale', 'purchase_refund'],
+#    ('incoming', 'supplier'): ['purchase'],
+#    ('incoming', 'customer'): ['sale_refund'],
+#    ('incoming', 'transit'): ['purchase', 'sale_refund'],
+#}
+# The refund journal don't exists anymore in v9
 JOURNAL_TYPE_MAP = {
     ('outgoing', 'customer'): ['sale'],
-    ('outgoing', 'supplier'): ['purchase_refund'],
-    ('outgoing', 'transit'): ['sale', 'purchase_refund'],
+    ('outgoing', 'supplier'): ['purchase'],
+    ('outgoing', 'transit'): ['sale', 'purchase'],
     ('incoming', 'supplier'): ['purchase'],
-    ('incoming', 'customer'): ['sale_refund'],
-    ('incoming', 'transit'): ['purchase', 'sale_refund'],
+    ('incoming', 'customer'): ['sale'],
+    ('incoming', 'transit'): ['purchase', 'sale'],
 }
 
 
 JOURNAL_TYPE = [
-        ('purchase_refund', 'Refund Purchase'), 
-        ('purchase', 'Create Supplier Invoice'),
-        ('sale_refund', 'Refund Sale'), 
-        ('sale', 'Create Customer Invoice')
+        ('purchase_refund', _('Refund Purchase')), 
+        ('purchase', _('Create Supplier Invoice')),
+        ('sale_refund', _('Refund Sale')), 
+        ('sale', _('Create Customer Invoice'))
 ]
 
 _logger = logging.getLogger(__name__)
@@ -48,15 +57,15 @@ class StockInvoiceOnshipping(models.TransientModel):
         for pick in pick_obj.search([('id', 'in', active_ids)]):
             if pick.invoice_state != '2binvoiced':
                 count += 1
-            if not pick.partner_id :
-                raise UserError(_('All your pickings must have a partner to be invoiced!'))
+#            if not pick.partner_id :
+#                raise UserError(_('All your pickings must have a partner to be invoiced!'))
 #        if len(active_ids) == count:
 #            _logger.debug("Raise ")
 #            self.invoice_force = True
 #            raise UserError(_('None of these picking require invoicing.'))
             
         
-        _logger.debug("RESULT %s")
+        _logger.debug("RESULT %s" % res)
         
         return res
     
@@ -110,12 +119,14 @@ class StockInvoiceOnshipping(models.TransientModel):
         context = self.env.context or {}                        
         res_ids = context and context.get('active_ids', [])
         pick_obj = self.env['stock.picking']
-        pickings = pick_obj.search([('id', 'in', res_ids)])
-        pick = pickings and pickings[0]
-        if not pick or not pick.move_lines:
+        pickings = pick_obj.sudo().search([('id', 'in', res_ids)])
+        pick = pickings and pickings[0]        
+        if not pick or not pick.sudo().move_lines:
             return 'sale'
-        type = pick.picking_type_id.code
-        usage = pick.move_lines[0].location_id.usage if type == 'incoming' else pick.move_lines[0].location_dest_id.usage
+        type = pick.sudo().picking_type_id.code
+        usage = pick.sudo().move_lines[0].location_id.usage \
+                        if type == 'incoming'  \
+                        else pick.sudo().move_lines[0].location_dest_id.usage
 
         return JOURNAL_TYPE_MAP.get((type, usage), ['sale'])[0]
     
@@ -131,6 +142,9 @@ class StockInvoiceOnshipping(models.TransientModel):
                                     default = _get_journal_type, readonly=True)
     
     group = fields.Boolean("Group by partner")
+    force_journal = fields.Boolean("Force the journal")
+    force_pricelist = fields.Boolean("Force the pricelist")
+    pricelist_id = fields.Many2one(comodel_name="product.pricelist", string="Pricelist")
     invoice_date = fields.Date('Invoice Date')
     invoice_force = fields.Boolean('Force Invoicing', default=False)
     
@@ -156,7 +170,15 @@ class StockInvoiceOnshipping(models.TransientModel):
     show_purchase_journal = fields.Boolean(string="Show Purchase Journal")
     show_purchase_refund_journal = fields.Boolean(
         string="Show Refund Purchase Journal")
-        
+    
+    company_id = fields.Many2one(comodel_name="res.company", 
+                                string='Invoicing Company',
+                                default=lambda self:self.env.user.company_id.id)
+    
+    invoiced_partner_field = fields.Selection(selection=[('partner_id',_('Partner')),
+                                                        ('company_id', _('Company'))], 
+                                string='Choose Partner to Invoice field',
+                                default='partner_id')
         
     #=================
     # Business part
@@ -207,16 +229,21 @@ class StockInvoiceOnshipping(models.TransientModel):
             pickings  =   self.env['stock.picking'].search([('id', 'in', active_ids)])
             pickings.set_invoiced()
             
-        
-        self = self.with_context(
+        force_company_id = self.company_id.id or self.env['res.users']._get_company()
+        picking_pool = picking_pool.with_context(
                 date_inv = self.invoice_date,
-                inv_type = inv_type
+                inv_type = inv_type,
+                force_company=force_company_id,
+                force_pricelist = self.pricelist_id.id or False,
+                invoiced_partner_field=self.invoiced_partner_field,
+                force_journal=self.force_journal
                )
 
         res = picking_pool.action_invoice_create(active_ids,
               journal_id = self.journal_id.id,
               group = self.group,
-              type = inv_type)
+              type = inv_type,
+              pricelist_id = self.pricelist_id)
         return res
 
 #TODO : Check the process        
@@ -258,15 +285,15 @@ class StockInvoiceOnshipping(models.TransientModel):
     def get_partner_sum(self, pickings, partner, inv_type, picking_type,
                         usage):
         move_obj = self.env['stock.move']
-        pickings = pickings.filtered(lambda x: x.picking_type_id.code ==
+        pickings = pickings.filtered(lambda x: x.sudo().picking_type_id.code ==
                                      picking_type and x.partner_id == partner)
         if picking_type == 'outgoing':
-            moves = pickings.mapped('move_lines').filtered(
-                lambda x: x.location_dest_id.usage == usage)
+            moves = pickings.sudo().mapped('move_lines').filtered(
+                lambda x: x.sudo().location_dest_id.usage == usage)
         else:
-            moves = pickings.mapped('move_lines').filtered(
-                lambda x: x.location_id.usage == usage)
-        return (sum([(m._get_price_unit_invoice( inv_type) *
+            moves = pickings.sudo().mapped('move_lines').filtered(
+                lambda x: x.sudo().location_id.usage == usage)
+        return (sum([(m._get_price_unit_invoice( inv_type, partner) *
                       m.product_uom_qty) for m in moves]),
                 moves.mapped('picking_id'))
 
@@ -300,18 +327,19 @@ class StockInvoiceOnshipping(models.TransientModel):
     @api.multi
     def get_split_pickings_nogrouped(self, pickings):
         sale_pickings = pickings.filtered(
-            lambda x: x.picking_type_id.code == 'outgoing' and
-            x.move_lines[:1].location_dest_id.usage == 'customer')
+            lambda x: x.sudo().picking_type_id.code == 'outgoing' and
+            x.sudo().move_lines[:1].location_dest_id.usage == 'customer')
         # use [:1] instead of [0] to avoid a errors on empty pickings
         sale_refund_pickings = pickings.filtered(
-            lambda x: x.picking_type_id.code == 'incoming' and
-            x.move_lines[:1].location_id.usage == 'customer')
+            lambda x: x.sudo().picking_type_id.code == 'incoming' and
+            x.sudo().move_lines[:1].location_id.usage == 'customer')
         purchase_pickings = pickings.filtered(
-            lambda x: x.picking_type_id.code == 'incoming' and
-            x.move_lines[:1].location_id.usage == 'supplier')
+            lambda x: x.sudo().picking_type_id.code == 'incoming' and
+            x.sudo().move_lines[:1].location_id.usage == 'supplier')
         purchase_refund_pickings = pickings.filtered(
-            lambda x: x.picking_type_id.code == 'outgoing' and
-            x.move_lines[:1].location_dest_id.usage == 'supplier')
+            lambda x: x.sudo().picking_type_id.code == 'outgoing' and
+            x.sudo().move_lines[:1].location_dest_id.usage == 'supplier')
+        
         return (sale_pickings, sale_refund_pickings, purchase_pickings,
                 purchase_refund_pickings)
 

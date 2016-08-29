@@ -7,24 +7,51 @@
             <field name="model">stock.invoice.onshipping</field>
             <field name="arch" type="xml">
                 <form string="Create invoice">
-                    <h1>
-                        <field name="journal_type" readonly="1"/>
-                    </h1>
                     <group>
+                        <label for="journal_type" string="Select your invoice type" class="oe_inline"/> : 
+                        <field name="journal_type" readonly="0" class="oe_inline"/>
+                    </group>
+                    
+                    <group>
+                        <field name="company_id" invisible="0" required="1"/>
+                        <field name="group"/>
+
+                        <field name="invoice_date" />
+                        <field name="invoice_force" />
+                        <label for="force_journal"/>
+                        <div>
+                        <field name="force_journal" class="oe_inline"/> : 
                         <field name="journal_id" domain="[('type','=',journal_type)]"  
-                               invisible="1"
+                               attrs="{'invisible': [('force_journal', '!=', True),]}"
+                               class="oe_inline"
                         />
+                        </div>
+                        <label for="force_pricelist"/>
+                        <div>
+                        <field name="force_pricelist" class="oe_inline"/>
+                         : <field name="pricelist_id" 
+                               attrs="{'invisible': [('force_pricelist', '!=', True),], 'required':[('force_pricelist', '=', True),]}"
+                               class="oe_inline"
+                        />
+                        </div>
+                        <field name="invoiced_partner_field" />
+                        
                         <field name="show_sale_journal" invisible="1"/>
                         <field name="show_sale_refund_journal" invisible="1"/>
                         <field name="show_purchase_journal" invisible="1"/>
                         <field name="show_purchase_refund_journal" invisible="1"/>
-                        <field name="sale_journal" attrs="{'invisible':[('show_sale_journal', '=', False)], 'required':[('show_sale_journal', '=', True)]}"/>
-                        <field name="sale_refund_journal" attrs="{'invisible':[('show_sale_refund_journal', '=', False)], 'required':[('show_sale_refund_journal', '=', True)]}"/>
-                        <field name="purchase_journal" attrs="{'invisible':[('show_purchase_journal', '=', False)], 'required':[('show_purchase_journal', '=', True)]}"/>
-                        <field name="purchase_refund_journal" domain="[('type', '=', 'purchase_refund')]" attrs="{'invisible':[('show_purchase_refund_journal', '=', False)], 'required':[('show_purchase_refund_journal', '=', True)]}"/>
-                        <field name="group"/>
-                        <field name="invoice_date" />
-                        <field name="invoice_force" />
+<!--                        <field name="sale_journal" attrs="{'invisible':['|', ('force_journal', '=', True), ('show_sale_journal', '=', False)], 'required':[('show_sale_journal', '=', True)]}"/>
+                        <field name="sale_refund_journal" attrs="{'invisible':['|', ('force_journal', '=', True),('show_sale_refund_journal', '=', False)], 'required':[('show_sale_refund_journal', '=', True)]}"/>
+                        <field name="purchase_journal" attrs="{'invisible':['|', ('force_journal', '=', True), ('show_purchase_journal', '=', False)], 'required':[('show_purchase_journal', '=', True)]}"/>
+                        <field name="purchase_refund_journal" domain="[ ('type', '=', 'purchase_refund')]" attrs="{'invisible':['|', ('force_journal', '=', True), ('show_purchase_refund_journal', '=', False)], 'required':[('show_purchase_refund_journal', '=', True)]}"/>
+                        -->
+                        <field name="sale_journal" />
+                        
+                        <field name="sale_refund_journal" />
+                        <field name="purchase_journal" />
+                        <field name="purchase_refund_journal" />
+                        
+                        
                     </group>
                     <footer>
                         <button name="open_invoice" string="Create" type="object" class="oe_highlight"/>
