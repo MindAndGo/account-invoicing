@@ -264,7 +264,7 @@ class StockPicking(models.Model):
                                   (picking.name, picking.invoice_id.number))
             picking.invoice_state = '2binvoiced'
             for move in picking.move_lines:
-                if move.invoice_state != 'invoiced':
+                if move.invoice_state != 'invoiced' and move.product_uom_qty != 0:
                     move.invoice_state = '2binvoiced'
         return True
 
