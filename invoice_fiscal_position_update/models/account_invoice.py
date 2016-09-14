@@ -10,8 +10,9 @@ _logger = logging.getLogger(__name__)
 class AccountInvoice(models.Model):
     _inherit = "account.invoice"
 
+    @api.multi
     @api.onchange('fiscal_position_id')
-    def fiscal_position_change(self):
+    def fiscal_position_change(self, **kwargs):
         """Updates taxes and accounts on all invoice lines"""
         self.ensure_one()
         res = {}
@@ -38,7 +39,7 @@ class AccountInvoice(models.Model):
                     _logger.debug("Apply the fiscal position %s" % fp.name)
                     account = fp.map_account(account)
                     all_taxes = fp.map_tax(all_taxes)
-                
+                _logger.debug("ALL TAXES %s" % all_taxes)                
                 taxes = all_taxes.filtered(lambda r: r.company_id == self.env.user.company_id)
                 
                 line.invoice_line_tax_ids = [(6, 0, taxes.ids)]
