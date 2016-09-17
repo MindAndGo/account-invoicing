@@ -436,7 +436,7 @@ class StockPicking(models.Model):
                 
             for move in picking.move_lines:
                 if move.invoice_state == '2binvoiced':
-                    if (move.state != 'cancel') and not move.scrapped:
+                    if (move.state != 'cancel') and not move.scrapped and move.product_uom_qty > 0:
                         todo.setdefault(key, [])
                         todo[key].append(move)
         invoices = []
