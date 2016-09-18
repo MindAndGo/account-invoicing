@@ -330,17 +330,71 @@ class StockPicking(models.Model):
 
     
     @api.model
-    def _invoice_create_line(self, moves, journal_id, inv_type='out_invoice', pricelist_id=None):
+    def _invoice_create_line(self, moves, invoice_id, journal_id, inv_type='out_invoice', pricelist_id=None):
         """
         Create an invoice and associated lines
+        """
+        InvoiceLines = self.env['account.invoice.line']
+        InvoiceLinesBIS = self.env['account.invoice.line']
+        move_obj = self.env['stock.move']
+#        invoices = {}
+        
+        is_extra_move, extra_move_tax = move_obj._get_moves_taxes(moves, inv_type)
+        product_price_unit = {}
+        _logger.debug("Invoice create Line for moves %s" % moves)
+        company_id  =  self.env.context['force_company'] or self.env['res.users']._get_company() 
+        for move in moves:
+            company = self.env['res.company'].search([('id', '=', company_id)])
+            origin = move.sudo().picking_id.name
+            partner, user_id, currency_id = move_obj._get_master_data(move, company)
+
+            move.with_context(
+                              fp_id=invoice_id.fiscal_position_id.id,
+                              )
+            
+            invoice_line_vals = move._get_invoice_line_vals(partner, inv_type)
+            invoice_line_vals['origin'] = origin
+            if not is_extra_move[move.id]:
+                product_price_unit[invoice_line_vals['product_id'], invoice_line_vals['uos_id']] = invoice_line_vals['price_unit']
+            if is_extra_move[move.id] and (invoice_line_vals['product_id'], invoice_line_vals['uos_id']) in product_price_unit:
+                invoice_line_vals['price_unit'] = product_price_unit[invoice_line_vals['product_id'], invoice_line_vals['uos_id']]
+            if is_extra_move[move.id]:
+                desc = (inv_type in ('out_invoice', 'out_refund') and move.product_id.product_tmpl_id.description_sale) or \
+                    (inv_type in ('in_invoice', 'in_refund') and move.product_id.product_tmpl_id.description_purchase)
+                invoice_line_vals['name'] += ' ' + desc if desc else ''
+                if extra_move_tax[move.picking_id, move.product_id]:
+                    invoice_line_vals['invoice_line_tax_id'] = extra_move_tax[move.picking_id, move.product_id]
+                #the default product taxes
+                elif (0, move.product_id) in extra_move_tax:
+                    invoice_line_vals['invoice_line_tax_id'] = extra_move_tax[0, move.product_id]
+
+            invoice_line = move._create_invoice_line_from_vals(invoice_line_vals)
+            _logger.debug("Invoice line created %s" % invoice_line)
+            
+            if invoice_line :
+                move.write({'invoice_line_id': invoice_line.id,
+                            'invoice_state': 'invoiced'
+                })
+            if move.picking_id and not move.picking_id.invoice_id :
+                move.picking_id.write({'invoice_id': invoice_id.id,
+                                    'invoice_state': 'invoiced'
+                })
+            
+            InvoiceLines = InvoiceLines + invoice_line
+            
+        return InvoiceLines
+    
+    @api.model
+    def _invoice_create(self, moves, journal_id, inv_type='out_invoice', pricelist_id=None):
+        """
+        Create an invoice 
         """
         invoice_obj = self.env['account.invoice']
         move_obj = self.env['stock.move']
         invoices = {}
         
-        is_extra_move, extra_move_tax = move_obj._get_moves_taxes(moves, inv_type)
-        product_price_unit = {}
-        _logger.debug("COntexte %s" % self.env.context)
+        
+        _logger.debug("Invoice create for moves %s" % moves)
         invoice_id = None
         company_id  =  self.env.context['force_company'] or self.env['res.users']._get_company() 
         for move in moves:
@@ -359,6 +413,7 @@ class StockPicking(models.Model):
             else:
                 _logger.debug("Add found invoice to list")
                 invoice = invoice_obj.search([('id', '=', invoices[key])])
+                invoice_id = invoice
                 merge_vals = {}
                 if not invoice.origin or invoice_vals['origin'] not in invoice.origin.split(', '):
                     invoice_origin = filter(None, [invoice.origin, invoice_vals['origin']])
@@ -370,48 +425,8 @@ class StockPicking(models.Model):
                 if merge_vals:
                     _logger.debug("Merge vues %s" % merge_vals)
                     invoice.write(merge_vals)
-
-            move.with_context(
-                              fp_id=invoice_vals.get('fiscal_position_id', False),
-                              )
-            
-            invoice_line_vals = move._get_invoice_line_vals(partner, inv_type)
-            invoice_line_vals['invoice_id'] = invoices[key]
-            invoice_line_vals['origin'] = origin
-            if not is_extra_move[move.id]:
-                product_price_unit[invoice_line_vals['product_id'], invoice_line_vals['uos_id']] = invoice_line_vals['price_unit']
-            if is_extra_move[move.id] and (invoice_line_vals['product_id'], invoice_line_vals['uos_id']) in product_price_unit:
-                invoice_line_vals['price_unit'] = product_price_unit[invoice_line_vals['product_id'], invoice_line_vals['uos_id']]
-            if is_extra_move[move.id]:
-                desc = (inv_type in ('out_invoice', 'out_refund') and move.product_id.product_tmpl_id.description_sale) or \
-                    (inv_type in ('in_invoice', 'in_refund') and move.product_id.product_tmpl_id.description_purchase)
-                invoice_line_vals['name'] += ' ' + desc if desc else ''
-                if extra_move_tax[move.picking_id, move.product_id]:
-                    invoice_line_vals['invoice_line_tax_id'] = extra_move_tax[move.picking_id, move.product_id]
-                #the default product taxes
-                elif (0, move.product_id) in extra_move_tax:
-                    invoice_line_vals['invoice_line_tax_id'] = extra_move_tax[0, move.product_id]
-
-            invoice_line = move._create_invoice_line_from_vals(invoice_line_vals)
-            _logger.debug("Before invoicing write")
-            if invoice_line :
-                move.write({'invoice_line_id': invoice_line.id,
-                            'invoice_state': 'invoiced'
-                })
-            if move.picking_id and not move.picking_id.invoice_id :
-                move.picking_id.write({'invoice_id': invoice_id.id,
-                                    'invoice_state': 'invoiced'
-                })
-                
         
-        invoice_id.compute_invoice_tax_lines()
-
-#        invoice_obj.button_compute(cr, uid, invoices.values(), context=context, set_total=(inv_type in ('in_invoice', 'in_refund')))
-#       
-        
-        return invoices.values()
-    
-
+        return invoice_id
     
     @api.model
     def action_invoice_create(self, ids, journal_id, group=False, type='out_invoice', pricelist_id = None):
@@ -441,8 +456,14 @@ class StockPicking(models.Model):
                         todo[key].append(move)
         invoices = []
         for moves in todo.values():
-            invoices += picking_obj._invoice_create_line(moves, journal_id, type, pricelist_id)
-        
-        
+            invoice_id = picking_obj._invoice_create(moves, journal_id, type, pricelist_id)
+            _logger.debug("Invoice %s created for  %s" % (invoice_id, invoice_id.origin))
+            
+            lines = picking_obj._invoice_create_line(moves, invoice_id, journal_id, type, pricelist_id)
+#            _logger.debug("Lines %s" % lines)
+            lines.write({'invoice_id': invoice_id.id})
+            invoice_id.compute_invoice_tax_lines()
+   
+            invoices.append(invoice_id.id)
         
         return invoices

@@ -225,7 +225,7 @@ class StockInvoiceOnshipping(models.TransientModel):
         active_ids = context.get('active_ids', [])
         
         if self.invoice_force:
-            _logger.debug("Force set_invoice")
+            _logger.debug("Force set_invoice for picking %s" % active_ids)
             pickings  =   self.env['stock.picking'].search([('id', 'in', active_ids)])
             pickings.set_invoiced()
             
